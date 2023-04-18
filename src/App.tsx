@@ -145,6 +145,7 @@ function Card(left: number, top: number) {
     padding: 10rem;
     top: ${top}rem;
     left: ${left}rem;
+    user-select: text;
   `;
 }
 
