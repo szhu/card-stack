@@ -10,16 +10,27 @@ import {
 } from "./api";
 
 function useCardStorage() {
-  const [cards, setCards] = useState<CardRecord[]>([]);
+  const [cardsUndoHistory, setCardsUndoHistory] = useState<CardRecord[][]>([]);
+
+  const cards = cardsUndoHistory[0] ?? [];
+  function setCards(cards: CardRecord[], clearUndoHistory = false) {
+    if (clearUndoHistory) {
+      setCardsUndoHistory([cards]);
+    } else {
+      setCardsUndoHistory([cards, ...cardsUndoHistory]);
+    }
+  }
+
   const topCard = cards[0];
 
   return {
+    cardsUndoHistory,
     cards,
     topCard: topCard as CardRecord | undefined,
 
     async loadCards() {
       let cards = await apiGetCards();
-      setCards(cards);
+      setCards(cards, true);
     },
 
     async updateCardText(card: CardRecord, text: string) {
@@ -33,12 +44,15 @@ function useCardStorage() {
       if (card == null) return;
 
       await apiDeleteCard(card.id);
-      setCards(cards.filter((c) => c.id !== card.id));
+      setCards(
+        cards.filter((c) => c.id !== card.id),
+        true,
+      );
     },
 
     async addCard(text: string) {
       let newCard = await apiCreateCard(text);
-      setCards([newCard, ...cards]);
+      setCards([newCard, ...cards], true);
     },
 
     async shuffleCards() {
@@ -66,21 +80,48 @@ function useCardStorage() {
       setCards(restCards);
     },
 
+    undo() {
+      setCardsUndoHistory(cardsUndoHistory.slice(1));
+    },
+
+    clearCardsUndoHistory() {
+      setCardsUndoHistory([]);
+    },
+
     setCards,
   } as const;
 }
 
 const Border = css`
-  border: 1px solid rgba(0, 0, 0, 0.5);
-  border-radius: 8rem;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 20rem;
   background: white;
 `;
+
+function Card(left: number, top: number) {
+  return css`
+    border: 1px solid rgba(0, 0, 0, 0.7);
+    border-radius: 8rem;
+    background: white;
+    font: var(--font-card);
+    text-align: center;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: ${top}rem;
+    left: ${left}rem;
+  `;
+}
 
 const Button = css`
   cursor: pointer;
   user-select: none;
   padding: 10rem;
   margin: -10rem;
+
+  & > * {
+    filter: saturate(0.05);
+  }
 
   &[disabled] {
     opacity: 0.5;
@@ -103,7 +144,7 @@ export default function App() {
     <>
       <Box
         className={css`
-          background: white;
+          background: #929694;
           height: 100svh;
           width: 100vw;
           max-width: 500rem;
@@ -112,7 +153,30 @@ export default function App() {
         `}
         flex="y/stretch 20rem"
       >
-        <Box padding="0/20rem" size="30rem" flex="x/stretch 20rem">
+        <Box padding="0/20rem" size="40rem" flex="x/stretch 20rem">
+          <Box
+            flex="center"
+            className={css`
+              font: var(--font-title);
+            `}
+          >
+            CardStack
+          </Box>
+
+          <Box
+            size="60rem"
+            flex="x/stretch 0"
+            className={Button}
+            disabled={storage.topCard == null}
+            onClick={async () => {
+              storage.loadCards();
+            }}
+          >
+            <Box className={Border} size="grow" flex="center">
+              <div>🔄</div>
+            </Box>
+          </Box>
+
           <Box size="grow" />
 
           <Box flex="center">Total: {storage.cards.length}</Box>
@@ -124,7 +188,7 @@ export default function App() {
             disabled={storage.topCard == null}
             onClick={async () => {
               if (storage.topCard == null) return;
-              let text = prompt("Enter text:");
+              let text = prompt("Edit card:", storage.topCard.fields.Text);
               if (!text || !text.trim()) return;
               await storage.updateCardText(storage.topCard, text);
             }}
@@ -141,7 +205,7 @@ export default function App() {
             disabled={storage.topCard == null}
             onClick={async () => {
               if (storage.topCard == null) return;
-              if (!confirm("Are you sure?")) return;
+              if (!confirm("Delete this card?")) return;
               await storage.deleteCard(storage.topCard);
             }}
           >
@@ -151,22 +215,42 @@ export default function App() {
           </Box>
         </Box>
 
-        <Box padding="0/20rem" size="grow" flex="x/stretch 0">
+        <Box size="grow" />
+
+        <Box
+          padding="0/20rem"
+          flex="x/stretch 0"
+          className={css`
+            aspect-ratio: 1/1;
+          `}
+        >
           {storage.topCard && (
-            <Box
-              flex="center"
-              size="grow"
-              className={[
-                Border,
-                css`
-                  font: var(--font-l);
-                `,
-              ]}
-            >
-              <div>{storage.topCard.fields.Text}</div>
-            </Box>
+            <>
+              <Box
+                flex="center"
+                size="grow"
+                className={css`
+                  position: relative;
+                `}
+              >
+                {storage.cards.length >= 4 && (
+                  <Box size="grow" className={Card(6, 10)} />
+                )}
+                {storage.cards.length >= 3 && (
+                  <Box size="grow" className={Card(3, 5)} />
+                )}
+                {storage.cards.length >= 2 && (
+                  <Box size="grow" className={Card(0, 0)} />
+                )}
+                <Box flex="center-y" size="grow" className={Card(-3, -5)}>
+                  <div>{storage.topCard.fields.Text}</div>
+                </Box>
+              </Box>
+            </>
           )}
         </Box>
+
+        <Box size="grow" />
 
         {/* <Box
             flex="center-x"
@@ -179,13 +263,16 @@ export default function App() {
             ))}
           </Box> */}
 
-        <Box padding="0/20rem" size="40rem" flex="x/stretch 20rem">
+        <Box padding="0/20rem" size="60rem" flex="x/stretch 20rem">
           <Box
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled
-            onClick={() => {}}
+            disabled={storage.cardsUndoHistory.length < 2}
+            onClick={() => {
+              if (storage.cardsUndoHistory.length < 2) return;
+              storage.undo();
+            }}
           >
             <Box className={Border} size="grow" flex="center">
               <div>⏮️</div>
@@ -217,13 +304,13 @@ export default function App() {
           </Box>
         </Box>
 
-        <Box padding="0/20rem" size="40rem" flex="x/stretch 20rem">
+        <Box padding="0/20rem" size="60rem" flex="x/stretch 20rem">
           <Box
             size="grow"
             flex="x/stretch 0"
             className={Button}
             onClick={() => {
-              let text = prompt("Enter text:");
+              let text = prompt("Add new card:", storage.topCard?.fields.Text);
               if (!text || !text.trim()) return;
               storage.addCard(text);
             }}
