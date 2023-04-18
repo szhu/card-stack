@@ -200,7 +200,7 @@ export default function App() {
               stackStorage.setPrettyStack("");
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box title="Help" className={Border} size="grow" flex="center">
               <div>❓</div>
             </Box>
           </Box>
@@ -218,7 +218,12 @@ export default function App() {
               stackStorage.setPrettyStack(text ?? "");
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Switch to another card stack"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>🏠</div>
             </Box>
           </Box>
@@ -232,7 +237,12 @@ export default function App() {
               storage.loadCards();
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Refresh cards"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>🔄</div>
             </Box>
           </Box>
@@ -245,15 +255,15 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.topCard == null}
+            disabled={storage.topCard == null || stackStorage.stack === "/"}
             onClick={async () => {
-              if (storage.topCard == null) return;
+              if (storage.topCard == null || stackStorage.stack === "/") return;
               let text = prompt("Edit card:", storage.topCard.fields.Text);
               if (!text || !text.trim()) return;
               await storage.updateCardText(storage.topCard, text.trim());
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box title="Edit card" className={Border} size="grow" flex="center">
               <div>✏️</div>
             </Box>
           </Box>
@@ -262,14 +272,19 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.topCard == null}
+            disabled={storage.topCard == null || stackStorage.stack === "/"}
             onClick={async () => {
-              if (storage.topCard == null) return;
+              if (storage.topCard == null || stackStorage.stack === "/") return;
               if (!confirm("Delete this card?")) return;
               await storage.deleteCard(storage.topCard);
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Delete card"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>🗑️</div>
             </Box>
           </Box>
@@ -334,7 +349,12 @@ export default function App() {
               storage.undo();
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="View previously seen card"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>⏮️</div>
             </Box>
           </Box>
@@ -346,7 +366,12 @@ export default function App() {
             disabled={storage.cards.length < 2}
             onClick={storage.sendTopCardToBottom}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Move this card to the bottom of the stack"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>↘️</div>
             </Box>
           </Box>
@@ -358,7 +383,12 @@ export default function App() {
             disabled={storage.cards.length < 2}
             onClick={storage.sendTopCardToRandom}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Move this card to somewhere in the middle of the stack"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>➡️</div>
             </Box>
           </Box>
@@ -369,13 +399,20 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
+            disabled={stackStorage.stack === "/"}
             onClick={() => {
+              if (stackStorage.stack === "/") return;
               let text = prompt("Add new card:", storage.topCard?.fields.Text);
               if (!text || !text.trim()) return;
               storage.addCard(text);
             }}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Create new card"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>❇️</div>
             </Box>
           </Box>
@@ -386,7 +423,12 @@ export default function App() {
             disabled={storage.cards.length < 2}
             onClick={storage.shuffleCards}
           >
-            <Box className={Border} size="grow" flex="center">
+            <Box
+              title="Shuffle all cards in this stack"
+              className={Border}
+              size="grow"
+              flex="center"
+            >
               <div>&nbsp;🔀&nbsp;</div>
             </Box>
           </Box>

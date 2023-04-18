@@ -24,6 +24,7 @@ interface CssShorthandProps {
     | FlexBasis
     | `${number} ${FlexBasis} | ${number}`;
   padding?: Length | `${Length}/${Length}`;
+  title?: HTMLAttributes<HTMLElement>["title"];
   onClick?: HTMLAttributes<HTMLElement>["onClick"];
   disabled?: ButtonHTMLAttributes<HTMLButtonElement>["disabled"];
 }
@@ -31,6 +32,7 @@ interface CssShorthandProps {
 interface CssShorthandOutput {
   tag?: "label";
   className?: string;
+  title?: HTMLAttributes<HTMLElement>["title"];
   onClick?: HTMLAttributes<HTMLElement>["onClick"];
   disabled?: ButtonHTMLAttributes<HTMLButtonElement>["disabled"];
 }
@@ -117,6 +119,7 @@ export function cssShorthand(props: CssShorthandProps): CssShorthandOutput {
       props.class,
       props.className,
     ),
+    title: props.title,
     onClick: props.onClick,
     disabled: props.disabled,
   };
