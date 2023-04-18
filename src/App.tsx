@@ -35,6 +35,15 @@ function useStackStorage() {
   return self;
 }
 
+function shuffle<T>(items: T[]) {
+  let newCards = [...items];
+  for (let i = newCards.length - 1; i > 0; i--) {
+    let j = Math.floor(Math.random() * (i + 1));
+    [newCards[i], newCards[j]] = [newCards[j], newCards[i]];
+  }
+  return newCards;
+}
+
 function useCardStorage(stack: string) {
   const [cardsUndoHistory, setCardsUndoHistory] = useState<CardRecord[][]>([]);
 
@@ -54,8 +63,11 @@ function useCardStorage(stack: string) {
     cards,
     topCard: topCard as CardRecord | undefined,
 
-    async loadCards() {
+    async loadCards(shouldShuffle = false) {
       let cards = await apiGetCards(stack);
+      if (shouldShuffle) {
+        cards = shuffle(cards);
+      }
       setCards(cards, true);
     },
 
@@ -82,12 +94,7 @@ function useCardStorage(stack: string) {
     },
 
     async shuffleCards() {
-      let newCards = [...cards];
-      for (let i = newCards.length - 1; i > 0; i--) {
-        let j = Math.floor(Math.random() * (i + 1));
-        [newCards[i], newCards[j]] = [newCards[j], newCards[i]];
-      }
-      setCards(newCards);
+      setCards(shuffle(cards));
     },
 
     sendTopCardToBottom() {
@@ -166,8 +173,8 @@ export default function App() {
   const storage = useCardStorage(stackStorage.stack);
 
   useEffect(() => {
-    storage.loadCards();
-  }, []);
+    storage.loadCards(stackStorage.stack !== "/");
+  }, [stackStorage.stack]);
 
   return (
     <>
