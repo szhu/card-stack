@@ -332,45 +332,6 @@ export default function App() {
           </Box>
         </Box>
       </Box>
-
-      {/* <div
-        className={css`
-          color: white;
-        `}
-      >
-        <fieldset>
-          <legend>Cards</legend>
-          <pre
-            className={css`
-              white-space: pre-wrap;
-            `}
-          >
-            {JSON.stringify(storage.cards, null, 2)}
-          </pre>
-        </fieldset>
-
-        <fieldset>
-          <legend>Current Card</legend>
-          <pre
-            className={css`
-              white-space: pre-wrap;
-            `}
-          >
-            {JSON.stringify(storage.topCard, null, 2)}
-          </pre>
-        </fieldset>
-
-        <fieldset>
-          <legend>Controls</legend>
-          <button onClick={() => settopCard(storage.cards[0])}>First</button>
-          <button onClick={() => storage.loadCards()}>Reload</button>
-          <button
-            onClick={() => storage.updateCardText(storage.topCard, "Hello")}
-          >
-            Update
-          </button>
-        </fieldset>
-      </div> */}
     </>
   );
 }
