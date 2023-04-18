@@ -34,6 +34,10 @@
     <div id="app"></div>
   </body>
   <script type="module" charset="utf-8">
+    if (location.pathname !== "/" && !location.pathname.startsWith("/stack/")) {
+      location.href = "/";
+    }
+
     import { createRoot } from "react-dom/client";
     import App from "./App";
 

@@ -9,7 +9,33 @@ import {
   apiUpdateCardText,
 } from "./api";
 
-function useCardStorage() {
+function useStackStorage() {
+  const stack = decodeURI(location.pathname);
+  const prettyStack = stack.replace(/^\/(stack\/)?/, "");
+
+  const self = {
+    stack,
+
+    setStack(newStack: string) {
+      if (newStack === stack) return;
+      location.pathname = encodeURI(newStack);
+    },
+
+    prettyStack,
+
+    setPrettyStack(newPrettyStack: string) {
+      newPrettyStack = newPrettyStack.trim();
+      if (!newPrettyStack) {
+        self.setStack("/");
+      } else {
+        self.setStack(`/stack/${newPrettyStack}`);
+      }
+    },
+  };
+  return self;
+}
+
+function useCardStorage(stack: string) {
   const [cardsUndoHistory, setCardsUndoHistory] = useState<CardRecord[][]>([]);
 
   const cards = cardsUndoHistory[0] ?? [];
@@ -29,7 +55,7 @@ function useCardStorage() {
     topCard: topCard as CardRecord | undefined,
 
     async loadCards() {
-      let cards = await apiGetCards();
+      let cards = await apiGetCards(stack);
       setCards(cards, true);
     },
 
@@ -51,7 +77,7 @@ function useCardStorage() {
     },
 
     async addCard(text: string) {
-      let newCard = await apiCreateCard(text);
+      let newCard = await apiCreateCard(stack, text);
       setCards([newCard, ...cards], true);
     },
 
@@ -100,6 +126,7 @@ const Border = css`
 
 function Card(left: number, top: number) {
   return css`
+    white-space: pre-wrap;
     border: 1px solid rgba(0, 0, 0, 0.7);
     border-radius: 8rem;
     background: white;
@@ -108,6 +135,7 @@ function Card(left: number, top: number) {
     position: absolute;
     width: 100%;
     height: 100%;
+    padding: 10rem;
     top: ${top}rem;
     left: ${left}rem;
   `;
@@ -134,7 +162,8 @@ const Button = css`
 `;
 
 export default function App() {
-  const storage = useCardStorage();
+  const stackStorage = useStackStorage();
+  const storage = useCardStorage(stackStorage.stack);
 
   useEffect(() => {
     storage.loadCards();
@@ -153,7 +182,7 @@ export default function App() {
         `}
         flex="y/stretch 20rem"
       >
-        <Box padding="0/20rem" size="40rem" flex="x/stretch 20rem">
+        <Box padding="0/20rem" size="40rem" flex="x/stretch 10rem">
           <Box
             flex="center"
             className={css`
@@ -161,6 +190,37 @@ export default function App() {
             `}
           >
             CardStack
+          </Box>
+
+          <Box
+            size="60rem"
+            flex="x/stretch 0"
+            className={Button}
+            onClick={async () => {
+              stackStorage.setPrettyStack("");
+            }}
+          >
+            <Box className={Border} size="grow" flex="center">
+              <div>❓</div>
+            </Box>
+          </Box>
+
+          <Box
+            size="60rem"
+            flex="x/stretch 0"
+            className={Button}
+            onClick={async () => {
+              let text = prompt(
+                "Switch to another stack?",
+                stackStorage.prettyStack,
+              );
+              if (!text || !text.trim()) return;
+              stackStorage.setPrettyStack(text ?? "");
+            }}
+          >
+            <Box className={Border} size="grow" flex="center">
+              <div>🏠</div>
+            </Box>
           </Box>
 
           <Box
@@ -190,11 +250,11 @@ export default function App() {
               if (storage.topCard == null) return;
               let text = prompt("Edit card:", storage.topCard.fields.Text);
               if (!text || !text.trim()) return;
-              await storage.updateCardText(storage.topCard, text);
+              await storage.updateCardText(storage.topCard, text.trim());
             }}
           >
             <Box className={Border} size="grow" flex="center">
-              <div>📝</div>
+              <div>✏️</div>
             </Box>
           </Box>
 

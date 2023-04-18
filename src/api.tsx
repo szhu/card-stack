@@ -10,6 +10,7 @@ export type CardRecord = AirtableRecord<{
   "Created": string;
   "Deleted?": number;
   "Text": string;
+  "Stack": string;
 }>;
 
 interface ApiResponse {
@@ -48,13 +49,14 @@ async function api({
   return await response.json();
 }
 
-export async function apiGetCards() {
+export async function apiGetCards(stack: string) {
   let records: CardRecord[] = [];
   let offset: string | undefined;
   while (true) {
     let response = await api({
       url: "/Cards",
       view: "Not deleted",
+      filterByFormula: `Stack=${JSON.stringify(stack)}`,
       offset: offset,
     });
 
@@ -95,11 +97,11 @@ export async function apiDeleteCard(cardId: string) {
   });
 }
 
-export async function apiCreateCard(text: string) {
+export async function apiCreateCard(stack: string, text: string) {
   let response = await api({
     url: "/Cards",
     method: "POST",
-    body: { records: [{ fields: { Text: text } }] },
+    body: { records: [{ fields: { Text: text, Stack: stack } }] },
   });
 
   if (response.records == null) {
