@@ -1,5 +1,5 @@
 import { css } from "@emotion/css";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box } from "./DS23";
 import {
   CardRecord,
@@ -35,6 +35,37 @@ function useStackStorage() {
   return self;
 }
 
+function useStructuredLocalStorage<T>(
+  key: string,
+  defaultValue: T,
+  serialize: (value: T) => string,
+  deserialize: (value: string) => T,
+) {
+  const hasInitializedRef = useRef(false);
+  const valueRef = useRef<T>();
+
+  if (!hasInitializedRef.current) {
+    const storedValue = localStorage.getItem(key);
+    if (storedValue != null) {
+      valueRef.current = deserialize(storedValue);
+    } else {
+      valueRef.current = defaultValue;
+    }
+    hasInitializedRef.current = true;
+  }
+
+  const setValue = (newValue: T) => {
+    if (newValue === defaultValue) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, serialize(newValue));
+    }
+    valueRef.current = newValue;
+  };
+
+  return [valueRef.current as T, setValue] as const;
+}
+
 function shuffle<T>(items: T[]) {
   let newCards = [...items];
   for (let i = newCards.length - 1; i > 0; i--) {
@@ -44,7 +75,36 @@ function shuffle<T>(items: T[]) {
   return newCards;
 }
 
-function useCardStorage(stack: string) {
+function orderCardsByArray(cards: CardRecord[], order: string[]) {
+  let orderIdsSet = new Set(order);
+  let idToCardMap = new Map(cards.map((card) => [card.id, card]));
+
+  let orderedCards = [];
+  for (let card of cards) {
+    if (!orderIdsSet.has(card.id)) {
+      orderedCards.push(card);
+      idToCardMap.delete(card.id);
+    }
+  }
+
+  for (let id of order) {
+    let card = idToCardMap.get(id);
+    if (card != null) {
+      orderedCards.push(card);
+      idToCardMap.delete(id);
+    }
+  }
+
+  // Sanity check
+  if (idToCardMap.size > 0) {
+    // Error: Some cards were not placed in `orderedCards`.
+    debugger;
+  }
+
+  return orderedCards;
+}
+
+function useCardStorage() {
   const [cardsUndoHistory, setCardsUndoHistory] = useState<CardRecord[][]>([]);
 
   const cards = cardsUndoHistory[0] ?? [];
@@ -63,12 +123,19 @@ function useCardStorage(stack: string) {
     cards,
     topCard: topCard as CardRecord | undefined,
 
-    async loadCards(shouldShuffle = false) {
+    async loadCards(stack: string, orderedIds?: string[] | "shuffle") {
       let cards = await apiGetCards(stack);
-      if (shouldShuffle) {
-        cards = shuffle(cards);
+
+      let orderedCards;
+      if (orderedIds == null) {
+        orderedCards = cards;
+      } else if (orderedIds === "shuffle") {
+        orderedCards = shuffle(cards);
+      } else {
+        orderedCards = orderCardsByArray(cards, orderedIds);
       }
-      setCards(cards, true);
+
+      setCards(orderedCards, true);
     },
 
     async updateCardText(card: CardRecord, text: string) {
@@ -88,7 +155,7 @@ function useCardStorage(stack: string) {
       );
     },
 
-    async addCard(text: string) {
+    async addCard(stack: string, text: string) {
       let newCard = await apiCreateCard(stack, text);
       setCards([newCard, ...cards], true);
     },
@@ -170,11 +237,53 @@ const Button = css`
 `;
 
 export default function App() {
+  // stackStorage keeps track of the current stack name.
   const stackStorage = useStackStorage();
-  const storage = useCardStorage(stackStorage.stack);
 
+  // cardsStorage keeps track of the current cards and undo history.
+  const cardsStorage = useCardStorage();
+
+  // orderedIds is a cached version of the order of cards
+  const [orderedIds, setOrderedIds] = useStructuredLocalStorage(
+    `CardStack.storage.cardsOrder:${stackStorage.prettyStack}`,
+    [] as string[],
+    (value) => value.join("\n"),
+    (value) => value.split("\n"),
+  );
+
+  // Check if the current stack is the demo stack.
+  function isDemoStack(doAlert = false) {
+    let result = stackStorage.stack === "/";
+
+    if (result && doAlert) {
+      alert(
+        "This button isn't available in the demo stack, but you'll be able to use it in your own stacks!",
+      );
+    }
+
+    return result;
+  }
+
+  // Save the order of cards when they change.
   useEffect(() => {
-    storage.loadCards(stackStorage.stack !== "/");
+    if (isDemoStack()) return;
+    if (cardsStorage.cards.length === 0) return;
+
+    setOrderedIds(cardsStorage.cards.map((card) => card.id));
+  }, [cardsStorage.cards]);
+
+  // Load cards when the stack changes.
+  useEffect(() => {
+    let order;
+    if (stackStorage.stack === "/") {
+      order = undefined;
+    } else if (orderedIds.length > 0) {
+      order = orderedIds;
+    } else {
+      order = "shuffle" as const;
+    }
+
+    cardsStorage.loadCards(stackStorage.stack, order);
   }, [stackStorage.stack]);
 
   return (
@@ -184,7 +293,7 @@ export default function App() {
           background: #929694;
           height: 100svh;
           width: 100vw;
-          max-width: 500rem;
+          max-width: 550rem;
           margin: 0 auto;
           padding: 20rem 0 40rem;
         `}
@@ -240,9 +349,9 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.topCard == null}
+            disabled={cardsStorage.topCard == null}
             onClick={async () => {
-              storage.loadCards();
+              cardsStorage.loadCards(stackStorage.stack);
             }}
           >
             <Box
@@ -257,18 +366,21 @@ export default function App() {
 
           <Box size="grow" />
 
-          <Box flex="center">Total: {storage.cards.length}</Box>
+          <Box flex="center">Total: {cardsStorage.cards.length}</Box>
 
           <Box
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.topCard == null || stackStorage.stack === "/"}
+            disabled={cardsStorage.topCard == null || isDemoStack()}
             onClick={async () => {
-              if (storage.topCard == null || stackStorage.stack === "/") return;
-              let text = prompt("Edit card:", storage.topCard.fields.Text);
+              if (cardsStorage.topCard == null || isDemoStack(true)) return;
+              let text = prompt("Edit card:", cardsStorage.topCard.fields.Text);
               if (!text || !text.trim()) return;
-              await storage.updateCardText(storage.topCard, text.trim());
+              await cardsStorage.updateCardText(
+                cardsStorage.topCard,
+                text.trim(),
+              );
             }}
           >
             <Box title="Edit card" className={Border} size="grow" flex="center">
@@ -280,11 +392,11 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.topCard == null || stackStorage.stack === "/"}
+            disabled={cardsStorage.topCard == null || isDemoStack()}
             onClick={async () => {
-              if (storage.topCard == null || stackStorage.stack === "/") return;
+              if (cardsStorage.topCard == null || isDemoStack(true)) return;
               if (!confirm("Delete this card?")) return;
-              await storage.deleteCard(storage.topCard);
+              await cardsStorage.deleteCard(cardsStorage.topCard);
             }}
           >
             <Box
@@ -307,7 +419,7 @@ export default function App() {
             aspect-ratio: 1/1;
           `}
         >
-          {storage.topCard && (
+          {cardsStorage.topCard && (
             <>
               <Box
                 flex="center"
@@ -316,17 +428,17 @@ export default function App() {
                   position: relative;
                 `}
               >
-                {storage.cards.length >= 4 && (
+                {cardsStorage.cards.length >= 4 && (
                   <Box size="grow" className={Card(6, 10)} />
                 )}
-                {storage.cards.length >= 3 && (
+                {cardsStorage.cards.length >= 3 && (
                   <Box size="grow" className={Card(3, 5)} />
                 )}
-                {storage.cards.length >= 2 && (
+                {cardsStorage.cards.length >= 2 && (
                   <Box size="grow" className={Card(0, 0)} />
                 )}
                 <Box flex="center-y" size="grow" className={Card(-3, -5)}>
-                  <div>{storage.topCard.fields.Text}</div>
+                  <div>{cardsStorage.topCard.fields.Text}</div>
                 </Box>
               </Box>
             </>
@@ -351,10 +463,10 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.cardsUndoHistory.length < 2}
+            disabled={cardsStorage.cardsUndoHistory.length < 2}
             onClick={() => {
-              if (storage.cardsUndoHistory.length < 2) return;
-              storage.undo();
+              if (cardsStorage.cardsUndoHistory.length < 2) return;
+              cardsStorage.undo();
             }}
           >
             <Box
@@ -371,8 +483,8 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.cards.length < 2}
-            onClick={storage.sendTopCardToBottom}
+            disabled={cardsStorage.cards.length < 2}
+            onClick={cardsStorage.sendTopCardToBottom}
           >
             <Box
               title="Move this card to the bottom of the stack"
@@ -388,8 +500,11 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.cards.length < 2}
-            onClick={storage.sendTopCardToRandom}
+            disabled={cardsStorage.cards.length < 2 || isDemoStack()}
+            onClick={() => {
+              if (isDemoStack(true)) return;
+              cardsStorage.sendTopCardToRandom();
+            }}
           >
             <Box
               title="Move this card to somewhere in the middle of the stack"
@@ -407,12 +522,12 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={stackStorage.stack === "/"}
+            disabled={isDemoStack()}
             onClick={() => {
-              if (stackStorage.stack === "/") return;
-              let text = prompt("Add new card:", storage.topCard?.fields.Text);
+              if (isDemoStack(true)) return;
+              let text = prompt("Add new card:");
               if (!text || !text.trim()) return;
-              storage.addCard(text);
+              cardsStorage.addCard(stackStorage.stack, text);
             }}
           >
             <Box
@@ -428,8 +543,11 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={storage.cards.length < 2}
-            onClick={storage.shuffleCards}
+            disabled={cardsStorage.cards.length < 2 || isDemoStack()}
+            onClick={() => {
+              if (isDemoStack(true)) return;
+              cardsStorage.shuffleCards();
+            }}
           >
             <Box
               title="Shuffle all cards in this stack"
