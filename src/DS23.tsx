@@ -1,5 +1,10 @@
 import { ClassNamesArg, css, cx } from "@emotion/css";
-import { ButtonHTMLAttributes, HTMLAttributes } from "react";
+import {
+  HTMLAttributes,
+  InputHTMLAttributes,
+  createElement,
+  forwardRef,
+} from "react";
 
 type Length = "0" | `${number}px` | `${number}rem`;
 type Direction = "x" | "y";
@@ -10,9 +15,9 @@ type Align = "center" | "stretch";
 type FlexBasis = "auto" | Length;
 
 interface CssShorthandProps {
+  tag?: string;
   class?: ClassNamesArg;
   className?: ClassNamesArg;
-  label?: boolean;
   flex?:
     | "center"
     | `center-${Direction}`
@@ -26,15 +31,21 @@ interface CssShorthandProps {
   padding?: Length | `${Length}/${Length}`;
   title?: HTMLAttributes<HTMLElement>["title"];
   onClick?: HTMLAttributes<HTMLElement>["onClick"];
-  disabled?: ButtonHTMLAttributes<HTMLButtonElement>["disabled"];
+  onInput?: HTMLAttributes<HTMLInputElement>["onInput"];
+  value?: InputHTMLAttributes<HTMLInputElement>["value"];
+  disabled?: InputHTMLAttributes<HTMLInputElement>["disabled"];
+  readOnly?: InputHTMLAttributes<HTMLInputElement>["readOnly"];
 }
 
 interface CssShorthandOutput {
-  tag?: "label";
+  tag?: string;
   className?: string;
   title?: HTMLAttributes<HTMLElement>["title"];
   onClick?: HTMLAttributes<HTMLElement>["onClick"];
-  disabled?: ButtonHTMLAttributes<HTMLButtonElement>["disabled"];
+  onInput?: HTMLAttributes<HTMLInputElement>["onInput"];
+  value?: InputHTMLAttributes<HTMLInputElement>["value"];
+  disabled?: InputHTMLAttributes<HTMLInputElement>["disabled"];
+  readOnly?: InputHTMLAttributes<HTMLInputElement>["readOnly"];
 }
 
 export function cssShorthand(props: CssShorthandProps): CssShorthandOutput {
@@ -99,7 +110,6 @@ export function cssShorthand(props: CssShorthandProps): CssShorthandOutput {
   }
 
   return {
-    tag: props.label ? "label" : undefined,
     className: cx(
       css`
         display: ${display};
@@ -119,20 +129,24 @@ export function cssShorthand(props: CssShorthandProps): CssShorthandOutput {
       props.class,
       props.className,
     ),
+    tag: props.tag,
     title: props.title,
     onClick: props.onClick,
+    onInput: props.onInput,
+    value: props.value,
     disabled: props.disabled,
+    readOnly: props.readOnly,
   };
 }
 
-export const Box: React.FC<
-  CssShorthandProps & { children?: React.ReactNode }
-> = (props) => {
-  let { tag, ...restProps } = cssShorthand(props);
-
-  if (tag === "label") {
-    return <label {...restProps}>{props.children}</label>;
-  } else {
-    return <div {...restProps}>{props.children}</div>;
+export const Box = forwardRef<
+  HTMLElement,
+  CssShorthandProps & {
+    ref?: React.Ref<HTMLElement>;
+    children?: React.ReactNode;
   }
-};
+>((props, ref) => {
+  let { tag = "div", ...restProps } = cssShorthand(props);
+
+  return createElement(tag, { ...restProps, ref }, props.children);
+});

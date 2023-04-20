@@ -192,6 +192,37 @@ function useCardStorage() {
   } as const;
 }
 
+function useTextEditing() {
+  const [text, setText] = useState<string>();
+  const resolveRef = useRef<((value: string) => void) | undefined>();
+  const rejectRef = useRef<((value?: unknown) => void) | undefined>();
+
+  return {
+    text,
+    setText,
+    isEditing: text != null,
+    edit(text: string) {
+      setText(text);
+      return new Promise<string>((resolve, reject) => {
+        resolveRef.current = resolve;
+        rejectRef.current = reject;
+      });
+    },
+    done() {
+      resolveRef.current?.(text!);
+      resolveRef.current = undefined;
+      rejectRef.current = undefined;
+      setText(undefined);
+    },
+    cancel() {
+      resolveRef.current = undefined;
+      rejectRef.current?.();
+      rejectRef.current = undefined;
+      setText(undefined);
+    },
+  };
+}
+
 const Border = css`
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 20rem;
@@ -223,10 +254,11 @@ const Button = css`
   margin: -10rem;
 
   & > * {
-    filter: saturate(0.05);
+    filter: saturate(0.6);
   }
 
-  &[disabled] {
+  &[disabled] > * {
+    filter: saturate(0.05);
     opacity: 0.5;
   }
 
@@ -236,7 +268,15 @@ const Button = css`
   }
 `;
 
+function autoSizeTextarea(textarea: HTMLElement | null) {
+  if (textarea == null) return;
+  textarea.style.height = "auto";
+  textarea.style.height = textarea.scrollHeight + "px";
+}
+
 export default function App() {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   // stackStorage keeps track of the current stack name.
   const stackStorage = useStackStorage();
 
@@ -251,22 +291,9 @@ export default function App() {
     (value) => value.split("\n"),
   );
 
-  // Check if the current stack is the demo stack.
-  function isDemoStack(doAlert = false) {
-    let result = stackStorage.stack === "/";
-
-    if (result && doAlert) {
-      alert(
-        "This button isn't available in the demo stack, but you'll be able to use it in your own stacks!",
-      );
-    }
-
-    return result;
-  }
-
   // Save the order of cards when they change.
   useEffect(() => {
-    if (isDemoStack()) return;
+    if (errIsDemoStack) return;
     if (cardsStorage.cards.length === 0) return;
 
     setOrderedIds(cardsStorage.cards.map((card) => card.id));
@@ -285,6 +312,23 @@ export default function App() {
 
     cardsStorage.loadCards(stackStorage.stack, order);
   }, [stackStorage.stack]);
+
+  // textEditing is used to edit the text of a card.
+  const cardEditing = useTextEditing();
+
+  // Reasons why an action can't be performed:
+  let errIsDemoStack =
+    stackStorage.stack === "/" &&
+    "This button is disabled for this demo, but you'll be able to use it in your own stacks!";
+  let errNoTopCard = cardsStorage.topCard == null && true;
+  let errOneOrFewerCards = cardsStorage.cards.length <= 1 && true;
+  let errIsEditing = cardEditing.isEditing && true;
+  let errNoUndoHistory = cardsStorage.cardsUndoHistory.length <= 1 && true;
+
+  function displayError(err: boolean | string) {
+    if (typeof err === "string") alert(err);
+    return err;
+  }
 
   return (
     <>
@@ -313,7 +357,10 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
+            disabled={Boolean(errIsDemoStack)}
             onClick={async () => {
+              if (displayError(errIsDemoStack)) return;
+
               stackStorage.setPrettyStack("");
             }}
           >
@@ -351,11 +398,14 @@ export default function App() {
             className={Button}
             disabled={cardsStorage.topCard == null}
             onClick={async () => {
-              cardsStorage.loadCards(stackStorage.stack);
+              cardsStorage.setCards([], true);
+              cardEditing.cancel();
+
+              await cardsStorage.loadCards(stackStorage.stack);
             }}
           >
             <Box
-              title="Refresh cards"
+              title="Reload cards and order by date created"
               className={Border}
               size="grow"
               flex="center"
@@ -369,22 +419,46 @@ export default function App() {
           <Box flex="center">Total: {cardsStorage.cards.length}</Box>
 
           <Box
+            key={cardsStorage.topCard?.id}
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.topCard == null || isDemoStack()}
+            disabled={Boolean(errNoTopCard || errIsDemoStack)}
             onClick={async () => {
-              if (cardsStorage.topCard == null || isDemoStack(true)) return;
-              let text = prompt("Edit card:", cardsStorage.topCard.fields.Text);
+              if (displayError(errNoTopCard || errIsDemoStack)) return;
+              if (cardsStorage.topCard == null) return; // just for typescript
+
+              if (cardEditing.isEditing) {
+                cardEditing.done();
+                return;
+              }
+
+              textareaRef.current?.select();
+
+              let text;
+              try {
+                text = await cardEditing.edit(cardsStorage.topCard.fields.Text);
+              } catch (e) {
+                // The user cancelled editing.
+                return;
+              }
+
               if (!text || !text.trim()) return;
+              textareaRef.current?.blur();
+              window.getSelection?.()?.removeAllRanges();
               await cardsStorage.updateCardText(
                 cardsStorage.topCard,
                 text.trim(),
               );
             }}
           >
-            <Box title="Edit card" className={Border} size="grow" flex="center">
-              <div>✏️</div>
+            <Box
+              title="Edit card"
+              className={[Border, cardEditing.isEditing && "primary"]}
+              size="grow"
+              flex="center"
+            >
+              <div>{cardEditing.isEditing ? "✅" : "✏️"}</div>
             </Box>
           </Box>
 
@@ -392,9 +466,12 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.topCard == null || isDemoStack()}
+            disabled={Boolean(errNoTopCard || errIsDemoStack || errIsEditing)}
             onClick={async () => {
-              if (cardsStorage.topCard == null || isDemoStack(true)) return;
+              if (displayError(errNoTopCard || errIsDemoStack || errIsEditing))
+                return;
+              if (cardsStorage.topCard == null) return; // just for typescript
+
               if (!confirm("Delete this card?")) return;
               await cardsStorage.deleteCard(cardsStorage.topCard);
             }}
@@ -437,8 +514,50 @@ export default function App() {
                 {cardsStorage.cards.length >= 2 && (
                   <Box size="grow" className={Card(0, 0)} />
                 )}
-                <Box flex="center-y" size="grow" className={Card(-3, -5)}>
-                  <div>{cardsStorage.topCard.fields.Text}</div>
+                <Box
+                  tag="label"
+                  flex="center-y"
+                  size="grow"
+                  readOnly={!cardEditing.isEditing}
+                  className={[
+                    Card(-3, -5),
+                    css`
+                      &:not([readonly]):focus-within {
+                        border-color: #1e43eb;
+                        border-color: SelectedItem;
+                        box-shadow: inset 0 0 0 1px #1e43eb;
+                        box-shadow: inset 0 0 0 1px SelectedItem;
+                      }
+
+                      cursor: text;
+                      &[readonly] {
+                        cursor: default;
+                      }
+                    `,
+                  ]}
+                >
+                  <Box
+                    tag="textarea"
+                    className={css`
+                      font: inherit;
+                      resize: none;
+                      box-sizing: content-box;
+                      outline: none;
+                      border: none;
+                      text-align: inherit;
+                      cursor: inherit;
+                    `}
+                    onInput={(e) => {
+                      cardEditing.setText(e.currentTarget.value);
+                      autoSizeTextarea(e.currentTarget);
+                    }}
+                    ref={(el) => {
+                      textareaRef.current = el as HTMLTextAreaElement;
+                      autoSizeTextarea(el);
+                    }}
+                    readOnly={!cardEditing.isEditing}
+                    value={cardEditing.text ?? cardsStorage.topCard.fields.Text}
+                  ></Box>
                 </Box>
               </Box>
             </>
@@ -463,9 +582,10 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.cardsUndoHistory.length < 2}
+            disabled={Boolean(errNoUndoHistory || errIsEditing)}
             onClick={() => {
-              if (cardsStorage.cardsUndoHistory.length < 2) return;
+              if (displayError(errNoUndoHistory || errIsEditing)) return;
+
               cardsStorage.undo();
             }}
           >
@@ -483,8 +603,12 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.cards.length < 2}
-            onClick={cardsStorage.sendTopCardToBottom}
+            disabled={Boolean(errOneOrFewerCards || errIsEditing)}
+            onClick={() => {
+              if (displayError(errOneOrFewerCards || errIsEditing)) return;
+
+              cardsStorage.sendTopCardToBottom();
+            }}
           >
             <Box
               title="Move this card to the bottom of the stack"
@@ -500,9 +624,17 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.cards.length < 2 || isDemoStack()}
+            disabled={Boolean(
+              errOneOrFewerCards || errIsDemoStack || errIsEditing,
+            )}
             onClick={() => {
-              if (isDemoStack(true)) return;
+              if (
+                displayError(
+                  errOneOrFewerCards || errIsDemoStack || errIsEditing,
+                )
+              )
+                return;
+
               cardsStorage.sendTopCardToRandom();
             }}
           >
@@ -522,9 +654,10 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={isDemoStack()}
+            disabled={Boolean(errIsDemoStack || errIsEditing)}
             onClick={() => {
-              if (isDemoStack(true)) return;
+              if (displayError(errIsDemoStack || errIsEditing)) return;
+
               let text = prompt("Add new card:");
               if (!text || !text.trim()) return;
               cardsStorage.addCard(stackStorage.stack, text);
@@ -543,9 +676,17 @@ export default function App() {
             size="grow"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.cards.length < 2 || isDemoStack()}
+            disabled={Boolean(
+              errOneOrFewerCards || errIsDemoStack || errIsEditing,
+            )}
             onClick={() => {
-              if (isDemoStack(true)) return;
+              if (
+                displayError(
+                  errOneOrFewerCards || errIsDemoStack || errIsEditing,
+                )
+              )
+                return;
+
               cardsStorage.shuffleCards();
             }}
           >
