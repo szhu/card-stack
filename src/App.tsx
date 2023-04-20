@@ -245,8 +245,8 @@ function Card(left: number, top: number) {
     width: 100%;
     height: 100%;
     padding: 10rem;
-    top: ${top}rem;
-    left: ${left}rem;
+    top: ${top * 1.5}rem;
+    left: ${left * 1.5}rem;
     user-select: text;
   `;
 }
@@ -563,8 +563,8 @@ export default function App() {
                       &:not([readonly]):focus-within {
                         border-color: #1e43eb;
                         border-color: SelectedItem;
-                        box-shadow: inset 0 0 0 1px #1e43eb;
-                        box-shadow: inset 0 0 0 1px SelectedItem;
+                        box-shadow: inset 0 0 0 max(1px, 3rem) #1e43eb;
+                        box-shadow: inset 0 0 0 max(1px, 3rem) SelectedItem;
                       }
 
                       cursor: text;
