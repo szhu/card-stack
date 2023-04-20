@@ -194,14 +194,18 @@ function useCardStorage() {
 
 function useTextEditing() {
   const [text, setText] = useState<string>();
+  const [reason, setReason] = useState<string>();
+
   const resolveRef = useRef<((value: string) => void) | undefined>();
   const rejectRef = useRef<((value?: unknown) => void) | undefined>();
 
   return {
     text,
+    reason,
     setText,
     isEditing: text != null,
-    edit(text: string) {
+    edit(text: string, reason?: string) {
+      setReason(reason);
       setText(text);
       return new Promise<string>((resolve, reject) => {
         resolveRef.current = resolve;
@@ -275,6 +279,8 @@ function autoSizeTextarea(textarea: HTMLElement | null) {
 }
 
 export default function App() {
+  const [statusMessage, setStatusMessage] = useState<string | undefined>();
+
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // stackStorage keeps track of the current stack name.
@@ -310,7 +316,16 @@ export default function App() {
       order = "shuffle" as const;
     }
 
-    cardsStorage.loadCards(stackStorage.stack, order);
+    setStatusMessage("Loading");
+    cardsStorage
+      .loadCards(stackStorage.stack, order)
+      .then(() => {
+        setStatusMessage(undefined);
+      })
+      .catch((err) => {
+        setStatusMessage("ERROR");
+        throw err;
+      });
   }, [stackStorage.stack]);
 
   // textEditing is used to edit the text of a card.
@@ -320,6 +335,7 @@ export default function App() {
   let errIsDemoStack =
     stackStorage.stack === "/" &&
     "This button is disabled for this demo, but you'll be able to use it in your own stacks!";
+  let errAlreadyAtDemoStack = stackStorage.stack === "/" && true;
   let errNoTopCard = cardsStorage.topCard == null && true;
   let errOneOrFewerCards = cardsStorage.cards.length <= 1 && true;
   let errIsEditing = cardEditing.isEditing && true;
@@ -357,9 +373,9 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={Boolean(errIsDemoStack)}
+            disabled={Boolean(errAlreadyAtDemoStack)}
             onClick={async () => {
-              if (displayError(errIsDemoStack)) return;
+              if (displayError(errAlreadyAtDemoStack)) return;
 
               stackStorage.setPrettyStack("");
             }}
@@ -396,12 +412,20 @@ export default function App() {
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={cardsStorage.topCard == null}
             onClick={async () => {
               cardsStorage.setCards([], true);
               cardEditing.cancel();
 
-              await cardsStorage.loadCards(stackStorage.stack);
+              setStatusMessage("Loading");
+              await cardsStorage
+                .loadCards(stackStorage.stack)
+                .then(() => {
+                  setStatusMessage(undefined);
+                })
+                .catch((err) => {
+                  setStatusMessage("ERROR");
+                  throw err;
+                });
             }}
           >
             <Box
@@ -414,42 +438,56 @@ export default function App() {
             </Box>
           </Box>
 
-          <Box size="grow" />
+          <Box flex="center">
+            {statusMessage != null ? (
+              <em>{statusMessage}</em>
+            ) : (
+              <>{cardsStorage.cards.length} cards</>
+            )}
+          </Box>
 
-          <Box flex="center">Total: {cardsStorage.cards.length}</Box>
+          <Box size="grow" />
 
           <Box
             key={cardsStorage.topCard?.id}
             size="60rem"
             flex="x/stretch 0"
             className={Button}
-            disabled={Boolean(errNoTopCard || errIsDemoStack)}
+            disabled={Boolean(errNoTopCard || errIsDemoStack || errIsEditing)}
             onClick={async () => {
-              if (displayError(errNoTopCard || errIsDemoStack)) return;
-              if (cardsStorage.topCard == null) return; // just for typescript
-
-              if (cardEditing.isEditing) {
-                cardEditing.done();
+              if (displayError(errNoTopCard || errIsDemoStack || errIsEditing))
                 return;
-              }
+              if (cardsStorage.topCard == null) return; // just for typescript
 
               textareaRef.current?.select();
 
               let text;
               try {
-                text = await cardEditing.edit(cardsStorage.topCard.fields.Text);
+                text = await cardEditing.edit(
+                  cardsStorage.topCard.fields.Text,
+                  "Edit this card",
+                );
               } catch (e) {
                 // The user cancelled editing.
+                textareaRef.current?.blur();
+                window.getSelection?.()?.removeAllRanges();
                 return;
               }
 
               if (!text || !text.trim()) return;
               textareaRef.current?.blur();
               window.getSelection?.()?.removeAllRanges();
-              await cardsStorage.updateCardText(
-                cardsStorage.topCard,
-                text.trim(),
-              );
+
+              setStatusMessage("Saving");
+              await cardsStorage
+                .updateCardText(cardsStorage.topCard, text.trim())
+                .then(() => {
+                  setStatusMessage(undefined);
+                })
+                .catch((e) => {
+                  setStatusMessage("ERROR");
+                  throw e;
+                });
             }}
           >
             <Box
@@ -458,7 +496,7 @@ export default function App() {
               size="grow"
               flex="center"
             >
-              <div>{cardEditing.isEditing ? "✅" : "✏️"}</div>
+              <div>✏️</div>
             </Box>
           </Box>
 
@@ -559,6 +597,65 @@ export default function App() {
                     value={cardEditing.text ?? cardsStorage.topCard.fields.Text}
                   ></Box>
                 </Box>
+
+                <Box
+                  className={css`
+                    position: absolute;
+                    top: -30rem;
+                    left: 0;
+                    right: 0;
+                    visibility: ${cardEditing.isEditing ? "visible" : "hidden"};
+                  `}
+                  flex="center-x"
+                >
+                  <Box className={Border} padding="10rem/20rem">
+                    <big>{cardEditing.reason}</big>
+                  </Box>
+                </Box>
+
+                <Box
+                  className={css`
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    bottom: -30rem;
+                    height: 40rem;
+                    visibility: ${cardEditing.isEditing ? "visible" : "hidden"};
+                  `}
+                  flex="x/stretch 20rem"
+                >
+                  <Box size="grow" />
+
+                  <Box
+                    size="150rem"
+                    flex="x/stretch 0"
+                    className={Button}
+                    onClick={cardEditing.done}
+                  >
+                    <Box className={Border} size="grow" flex="center">
+                      <Box flex="x/center 12rem">
+                        <span>✅</span>
+                        <big>Done</big>
+                      </Box>
+                    </Box>
+                  </Box>
+
+                  <Box
+                    size="150rem"
+                    flex="x/stretch 0"
+                    className={Button}
+                    onClick={cardEditing.cancel}
+                  >
+                    <Box className={Border} size="grow" flex="center">
+                      <Box flex="x/center 12rem">
+                        <span>❌</span>
+                        <big>Cancel</big>
+                      </Box>
+                    </Box>
+                  </Box>
+
+                  <Box size="grow" />
+                </Box>
               </Box>
             </>
           )}
@@ -655,12 +752,35 @@ export default function App() {
             flex="x/stretch 0"
             className={Button}
             disabled={Boolean(errIsDemoStack || errIsEditing)}
-            onClick={() => {
+            onClick={async () => {
               if (displayError(errIsDemoStack || errIsEditing)) return;
 
-              let text = prompt("Add new card:");
+              textareaRef.current?.select();
+
+              let text;
+              try {
+                text = await cardEditing.edit("", "Add new card");
+              } catch (e) {
+                // The user cancelled editing.
+                textareaRef.current?.blur();
+                window.getSelection?.()?.removeAllRanges();
+                return;
+              }
+
               if (!text || !text.trim()) return;
-              cardsStorage.addCard(stackStorage.stack, text);
+              textareaRef.current?.blur();
+              window.getSelection?.()?.removeAllRanges();
+
+              setStatusMessage("Saving");
+              await cardsStorage
+                .addCard(stackStorage.stack, text.trim())
+                .then(() => {
+                  setStatusMessage(undefined);
+                })
+                .catch((e) => {
+                  setStatusMessage("ERROR");
+                  throw e;
+                });
             }}
           >
             <Box
