@@ -31,10 +31,12 @@ interface CssShorthandProps {
   padding?: Length | `${Length}/${Length}`;
   title?: HTMLAttributes<HTMLElement>["title"];
   onClick?: HTMLAttributes<HTMLElement>["onClick"];
+  onKeyDown?: HTMLAttributes<HTMLElement>["onKeyDown"];
   onInput?: HTMLAttributes<HTMLInputElement>["onInput"];
   value?: InputHTMLAttributes<HTMLInputElement>["value"];
   disabled?: InputHTMLAttributes<HTMLInputElement>["disabled"];
   readOnly?: InputHTMLAttributes<HTMLInputElement>["readOnly"];
+  tabIndex?: HTMLAttributes<HTMLElement>["tabIndex"];
 }
 
 interface CssShorthandOutput {
@@ -42,10 +44,12 @@ interface CssShorthandOutput {
   className?: string;
   title?: HTMLAttributes<HTMLElement>["title"];
   onClick?: HTMLAttributes<HTMLElement>["onClick"];
+  onKeyDown?: HTMLAttributes<HTMLElement>["onKeyDown"];
   onInput?: HTMLAttributes<HTMLInputElement>["onInput"];
   value?: InputHTMLAttributes<HTMLInputElement>["value"];
   disabled?: InputHTMLAttributes<HTMLInputElement>["disabled"];
   readOnly?: InputHTMLAttributes<HTMLInputElement>["readOnly"];
+  tabIndex?: HTMLAttributes<HTMLElement>["tabIndex"];
 }
 
 export function cssShorthand(props: CssShorthandProps): CssShorthandOutput {
@@ -132,10 +136,12 @@ export function cssShorthand(props: CssShorthandProps): CssShorthandOutput {
     tag: props.tag,
     title: props.title,
     onClick: props.onClick,
+    onKeyDown: props.onKeyDown,
     onInput: props.onInput,
     value: props.value,
     disabled: props.disabled,
     readOnly: props.readOnly,
+    tabIndex: props.tabIndex,
   };
 }
 

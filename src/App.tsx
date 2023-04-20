@@ -1,6 +1,8 @@
 import { css } from "@emotion/css";
 import { useEffect, useRef, useState } from "react";
+import Button from "./Button";
 import { Box } from "./DS23";
+import { useModalWindow } from "./ModalWindow";
 import {
   CardRecord,
   apiCreateCard,
@@ -196,8 +198,9 @@ function useTextEditing() {
   const [text, setText] = useState<string>();
   const [reason, setReason] = useState<string>();
 
-  const resolveRef = useRef<((value: string) => void) | undefined>();
-  const rejectRef = useRef<((value?: unknown) => void) | undefined>();
+  const resolveRef = useRef<
+    ((value: string | undefined) => void) | undefined
+  >();
 
   return {
     text,
@@ -207,21 +210,18 @@ function useTextEditing() {
     edit(text: string, reason?: string) {
       setReason(reason);
       setText(text);
-      return new Promise<string>((resolve, reject) => {
+      return new Promise<string | undefined>((resolve) => {
         resolveRef.current = resolve;
-        rejectRef.current = reject;
       });
     },
     done() {
       resolveRef.current?.(text!);
       resolveRef.current = undefined;
-      rejectRef.current = undefined;
       setText(undefined);
     },
     cancel() {
+      resolveRef.current?.(undefined);
       resolveRef.current = undefined;
-      rejectRef.current?.();
-      rejectRef.current = undefined;
       setText(undefined);
     },
   };
@@ -251,7 +251,7 @@ function Card(left: number, top: number) {
   `;
 }
 
-const Button = css`
+const ButtonStyle = css`
   cursor: pointer;
   user-select: none;
   padding: 10rem;
@@ -279,10 +279,6 @@ function autoSizeTextarea(textarea: HTMLElement | null) {
 }
 
 export default function App() {
-  const [statusMessage, setStatusMessage] = useState<string | undefined>();
-
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
   // stackStorage keeps track of the current stack name.
   const stackStorage = useStackStorage();
 
@@ -331,19 +327,67 @@ export default function App() {
   // textEditing is used to edit the text of a card.
   const cardEditing = useTextEditing();
 
+  // textarea connects cardEditing to the card textarea.
+  const cardTextarea = {
+    ref: useRef<HTMLTextAreaElement | null>(null),
+    select() {
+      if (cardTextarea.ref.current == null) return;
+      cardTextarea.ref.current.select();
+    },
+    blur() {
+      if (cardTextarea.ref.current == null) return;
+      cardTextarea.ref.current.blur();
+      window.getSelection?.()?.removeAllRanges();
+    },
+    async edit(initialText: string, reason: string) {
+      cardTextarea.select();
+      let text = await cardEditing.edit(initialText, reason);
+      cardTextarea.blur();
+      return text?.trim();
+    },
+  };
+
+  // modalWindow is used to display alerts, prompts, and confirmations.
+  const modalWindow = useModalWindow();
+
+  // statusMessage is used to display a status message at the top of the screen.
+  const [statusMessage, setStatusMessage] = useState<string | undefined>();
+
   // Reasons why an action can't be performed:
   let errIsDemoStack =
     stackStorage.stack === "/" &&
-    "This button is disabled for this demo, but you'll be able to use it in your own stacks!";
+    "This action is disabled for this demo, but you'll be able to use it when you're making your own card stacks!";
   let errAlreadyAtDemoStack = stackStorage.stack === "/" && true;
   let errNoTopCard = cardsStorage.topCard == null && true;
   let errOneOrFewerCards = cardsStorage.cards.length <= 1 && true;
   let errIsEditing = cardEditing.isEditing && true;
   let errNoUndoHistory = cardsStorage.cardsUndoHistory.length <= 1 && true;
 
-  function displayError(err: boolean | string) {
-    if (typeof err === "string") alert(err);
+  async function displayError(err: boolean | string) {
+    if (typeof err === "string") await modalWindow.alert(err);
     return err;
+  }
+
+  function disabledAndOnClick(err: boolean | string, onClick: () => void) {
+    return {
+      disabled: !!err,
+      onClick: async () => {
+        if (await displayError(err)) return;
+        return onClick();
+      },
+    } as const;
+  }
+
+  function babysitAsyncAction(promise: Promise<void>, statusMessage: string) {
+    setStatusMessage(statusMessage);
+    return promise
+      .then(() => {
+        setStatusMessage(undefined);
+      })
+      .catch((e) => {
+        setStatusMessage("ERROR");
+        throw e;
+      });
   }
 
   return (
@@ -369,74 +413,43 @@ export default function App() {
             CardStack
           </Box>
 
-          <Box
-            size="60rem"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(errAlreadyAtDemoStack)}
-            onClick={async () => {
-              if (displayError(errAlreadyAtDemoStack)) return;
-
+          <Button
+            theme="circle"
+            icon="❓"
+            title="Help"
+            {...disabledAndOnClick(errAlreadyAtDemoStack, () => {
               stackStorage.setPrettyStack("");
-            }}
-          >
-            <Box title="Help" className={Border} size="grow" flex="center">
-              <div>❓</div>
-            </Box>
-          </Box>
+            })}
+          />
 
-          <Box
-            size="60rem"
-            flex="x/stretch 0"
-            className={Button}
-            onClick={async () => {
-              let text = prompt(
-                "Switch to another stack?",
+          <Button
+            theme="circle"
+            icon="🏠"
+            title="Switch to another card stack"
+            {...disabledAndOnClick(false, async () => {
+              let text = await modalWindow.prompt(
+                "Switch to or create a stack named:",
                 stackStorage.prettyStack,
               );
               if (!text || !text.trim()) return;
               stackStorage.setPrettyStack(text ?? "");
-            }}
-          >
-            <Box
-              title="Switch to another card stack"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>🏠</div>
-            </Box>
-          </Box>
+            })}
+          />
 
-          <Box
-            size="60rem"
-            flex="x/stretch 0"
-            className={Button}
-            onClick={async () => {
+          <Button
+            theme="circle"
+            icon="🔄"
+            title="Reload cards and order by date created"
+            {...disabledAndOnClick(false, () => {
               cardsStorage.setCards([], true);
               cardEditing.cancel();
 
-              setStatusMessage("Loading");
-              await cardsStorage
-                .loadCards(stackStorage.stack)
-                .then(() => {
-                  setStatusMessage(undefined);
-                })
-                .catch((err) => {
-                  setStatusMessage("ERROR");
-                  throw err;
-                });
-            }}
-          >
-            <Box
-              title="Reload cards and order by date created"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>🔄</div>
-            </Box>
-          </Box>
+              babysitAsyncAction(
+                cardsStorage.loadCards(stackStorage.stack),
+                "Loading",
+              );
+            })}
+          />
 
           <Box flex="center">
             {statusMessage != null ? (
@@ -448,81 +461,54 @@ export default function App() {
 
           <Box size="grow" />
 
-          <Box
-            key={cardsStorage.topCard?.id}
-            size="60rem"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(errNoTopCard || errIsDemoStack || errIsEditing)}
-            onClick={async () => {
-              if (displayError(errNoTopCard || errIsDemoStack || errIsEditing))
-                return;
-              if (cardsStorage.topCard == null) return; // just for typescript
+          <Button
+            theme="circle"
+            icon="✏️"
+            title="Edit card"
+            {...disabledAndOnClick(
+              errNoTopCard || errIsDemoStack || errIsEditing,
+              async () => {
+                if (cardsStorage.topCard == null) return; // just for typescript
 
-              textareaRef.current?.select();
-
-              let text;
-              try {
-                text = await cardEditing.edit(
+                let text = await cardTextarea.edit(
                   cardsStorage.topCard.fields.Text,
                   "Edit this card",
                 );
-              } catch (e) {
-                // The user cancelled editing.
-                textareaRef.current?.blur();
-                window.getSelection?.()?.removeAllRanges();
-                return;
-              }
+                if (!text) return;
 
-              if (!text || !text.trim()) return;
-              textareaRef.current?.blur();
-              window.getSelection?.()?.removeAllRanges();
+                await babysitAsyncAction(
+                  cardsStorage.updateCardText(cardsStorage.topCard, text),
+                  "Saving",
+                );
+              },
+            )}
+          />
 
-              setStatusMessage("Saving");
-              await cardsStorage
-                .updateCardText(cardsStorage.topCard, text.trim())
-                .then(() => {
-                  setStatusMessage(undefined);
-                })
-                .catch((e) => {
-                  setStatusMessage("ERROR");
-                  throw e;
-                });
-            }}
-          >
-            <Box
-              title="Edit card"
-              className={[Border, cardEditing.isEditing && "primary"]}
-              size="grow"
-              flex="center"
-            >
-              <div>✏️</div>
-            </Box>
-          </Box>
+          <Button
+            theme="circle"
+            icon="🗑️"
+            title="Delete card"
+            {...disabledAndOnClick(
+              errNoTopCard || errIsDemoStack || errIsEditing,
+              async () => {
+                if (cardsStorage.topCard == null) return; // just for typescript
 
-          <Box
-            size="60rem"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(errNoTopCard || errIsDemoStack || errIsEditing)}
-            onClick={async () => {
-              if (displayError(errNoTopCard || errIsDemoStack || errIsEditing))
-                return;
-              if (cardsStorage.topCard == null) return; // just for typescript
+                if (
+                  !(await modalWindow.confirm("Delete this card?", {
+                    okText: "Delete",
+                    cancelText: "Cancel",
+                    danger: true,
+                  }))
+                )
+                  return;
 
-              if (!confirm("Delete this card?")) return;
-              await cardsStorage.deleteCard(cardsStorage.topCard);
-            }}
-          >
-            <Box
-              title="Delete card"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>🗑️</div>
-            </Box>
-          </Box>
+                await babysitAsyncAction(
+                  cardsStorage.deleteCard(cardsStorage.topCard),
+                  "Deleting",
+                );
+              },
+            )}
+          />
         </Box>
 
         <Box size="grow" />
@@ -584,17 +570,39 @@ export default function App() {
                       border: none;
                       text-align: inherit;
                       cursor: inherit;
+
+                      filter: ${statusMessage === "Saving" && "blur(5px)"};
                     `}
                     onInput={(e) => {
                       cardEditing.setText(e.currentTarget.value);
                       autoSizeTextarea(e.currentTarget);
                     }}
                     ref={(el) => {
-                      textareaRef.current = el as HTMLTextAreaElement;
+                      cardTextarea.ref.current = el as HTMLTextAreaElement;
                       autoSizeTextarea(el);
                     }}
                     readOnly={!cardEditing.isEditing}
                     value={cardEditing.text ?? cardsStorage.topCard.fields.Text}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.altKey &&
+                        (e.metaKey || e.ctrlKey)
+                      ) {
+                        e.preventDefault();
+                        cardEditing.done();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        // Is it safe to discard?
+                        if (
+                          !cardEditing.text ||
+                          cardEditing.text === cardsStorage.topCard?.fields.Text
+                        ) {
+                          cardEditing.cancel();
+                        }
+                      }
+                    }}
                   ></Box>
                 </Box>
 
@@ -626,33 +634,19 @@ export default function App() {
                 >
                   <Box size="grow" />
 
-                  <Box
-                    size="150rem"
-                    flex="x/stretch 0"
-                    className={Button}
-                    onClick={cardEditing.done}
-                  >
-                    <Box className={Border} size="grow" flex="center">
-                      <Box flex="x/center 12rem">
-                        <span>✅</span>
-                        <big>Done</big>
-                      </Box>
-                    </Box>
-                  </Box>
-
-                  <Box
-                    size="150rem"
-                    flex="x/stretch 0"
-                    className={Button}
+                  <Button
+                    theme="card-editing"
+                    icon="❌"
+                    text="Cancel"
                     onClick={cardEditing.cancel}
-                  >
-                    <Box className={Border} size="grow" flex="center">
-                      <Box flex="x/center 12rem">
-                        <span>❌</span>
-                        <big>Cancel</big>
-                      </Box>
-                    </Box>
-                  </Box>
+                  />
+
+                  <Button
+                    theme="card-editing"
+                    icon="✅"
+                    text="Done"
+                    onClick={cardEditing.done}
+                  />
 
                   <Box size="grow" />
                 </Box>
@@ -663,164 +657,66 @@ export default function App() {
 
         <Box size="grow" />
 
-        {/* <Box
-            flex="center-x"
-            className={css`
-              gap: 10rem;
-            `}
-          >
-            {storage.cards.map((card) => (
-              <Box> {card.fields.Text}</Box>
-            ))}
-          </Box> */}
-
         <Box padding="0/20rem" size="60rem" flex="x/stretch 20rem">
-          <Box
-            size="grow"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(errNoUndoHistory || errIsEditing)}
-            onClick={() => {
-              if (displayError(errNoUndoHistory || errIsEditing)) return;
-
-              cardsStorage.undo();
-            }}
-          >
-            <Box
-              title="View previously seen card"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>⏮️</div>
-            </Box>
-          </Box>
-
-          <Box
-            size="grow"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(errOneOrFewerCards || errIsEditing)}
-            onClick={() => {
-              if (displayError(errOneOrFewerCards || errIsEditing)) return;
-
-              cardsStorage.sendTopCardToBottom();
-            }}
-          >
-            <Box
-              title="Move this card to the bottom of the stack"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>↘️</div>
-            </Box>
-          </Box>
-
-          <Box
-            size="grow"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(
-              errOneOrFewerCards || errIsDemoStack || errIsEditing,
+          <Button
+            theme="bottom-row"
+            icon="⏮️"
+            title="View previously seen card"
+            {...disabledAndOnClick(
+              errNoUndoHistory || errIsEditing,
+              cardsStorage.undo,
             )}
-            onClick={() => {
-              if (
-                displayError(
-                  errOneOrFewerCards || errIsDemoStack || errIsEditing,
-                )
-              )
-                return;
+          />
 
-              cardsStorage.sendTopCardToRandom();
-            }}
-          >
-            <Box
-              title="Move this card to somewhere in the middle of the stack"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>➡️</div>
-            </Box>
-          </Box>
+          <Button
+            theme="bottom-row"
+            icon="↘️"
+            title="Move this card to the bottom of the stack"
+            {...disabledAndOnClick(
+              errOneOrFewerCards || errIsEditing,
+              cardsStorage.sendTopCardToBottom,
+            )}
+          />
+
+          <Button
+            theme="bottom-row"
+            icon="➡️"
+            title="Move this card to somewhere in the middle of the stack"
+            {...disabledAndOnClick(
+              errOneOrFewerCards || errIsDemoStack || errIsEditing,
+              cardsStorage.sendTopCardToRandom,
+            )}
+          />
         </Box>
 
         <Box padding="0/20rem" size="60rem" flex="x/stretch 20rem">
-          <Box
-            size="grow"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(errIsDemoStack || errIsEditing)}
-            onClick={async () => {
-              if (displayError(errIsDemoStack || errIsEditing)) return;
+          <Button
+            theme="bottom-row"
+            icon="❇️"
+            title="Create new card"
+            {...disabledAndOnClick(errIsDemoStack || errIsEditing, async () => {
+              let text = await cardTextarea.edit("", "Add new card");
+              if (!text) return;
 
-              textareaRef.current?.select();
+              await babysitAsyncAction(
+                cardsStorage.addCard(stackStorage.stack, text.trim()),
+                "Saving",
+              );
+            })}
+          />
 
-              let text;
-              try {
-                text = await cardEditing.edit("", "Add new card");
-              } catch (e) {
-                // The user cancelled editing.
-                textareaRef.current?.blur();
-                window.getSelection?.()?.removeAllRanges();
-                return;
-              }
-
-              if (!text || !text.trim()) return;
-              textareaRef.current?.blur();
-              window.getSelection?.()?.removeAllRanges();
-
-              setStatusMessage("Saving");
-              await cardsStorage
-                .addCard(stackStorage.stack, text.trim())
-                .then(() => {
-                  setStatusMessage(undefined);
-                })
-                .catch((e) => {
-                  setStatusMessage("ERROR");
-                  throw e;
-                });
-            }}
-          >
-            <Box
-              title="Create new card"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>❇️</div>
-            </Box>
-          </Box>
-          <Box
-            size="grow"
-            flex="x/stretch 0"
-            className={Button}
-            disabled={Boolean(
+          <Button
+            theme="bottom-row"
+            icon="🔀"
+            title="Shuffle all cards in this stack"
+            {...disabledAndOnClick(
               errOneOrFewerCards || errIsDemoStack || errIsEditing,
+              cardsStorage.shuffleCards,
             )}
-            onClick={() => {
-              if (
-                displayError(
-                  errOneOrFewerCards || errIsDemoStack || errIsEditing,
-                )
-              )
-                return;
-
-              cardsStorage.shuffleCards();
-            }}
-          >
-            <Box
-              title="Shuffle all cards in this stack"
-              className={Border}
-              size="grow"
-              flex="center"
-            >
-              <div>&nbsp;🔀&nbsp;</div>
-            </Box>
-          </Box>
+          />
         </Box>
       </Box>
+      {modalWindow.node}
     </>
   );
 }
