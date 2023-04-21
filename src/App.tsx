@@ -326,7 +326,7 @@ const ButtonStyle = css`
 
 function autoSizeTextarea(textarea: HTMLElement | null) {
   if (textarea == null) return;
-  textarea.style.height = "auto";
+  textarea.style.height = "0";
   textarea.style.height = textarea.scrollHeight + "px";
 }
 
