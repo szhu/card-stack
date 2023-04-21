@@ -1,5 +1,6 @@
 import { css } from "@emotion/css";
-import balanceText from "balance-text";
+import Balancer from "react-wrap-balancer";
+
 import { useRef, useState } from "react";
 import Button from "./Button";
 import { Box } from "./DS23";
@@ -77,8 +78,8 @@ const ModalWindow: React.FC<ModalProps> = (props) => {
           }}
         >
           <Box
-            flex="y/stretch 10rem"
-            padding="20rem/40rem"
+            flex="y/stretch 16rem"
+            padding="24rem/40rem"
             className={css`
               background: white;
               border-radius: 3rem;
@@ -87,17 +88,21 @@ const ModalWindow: React.FC<ModalProps> = (props) => {
           >
             <Box
               flex="y/stretch 20rem"
-              padding="20rem/0"
+              padding="30rem/0"
               className={css`
                 font: var(--font-l);
                 text-align: center;
               `}
             >
-              <div ref={balanceText}>{props.text}</div>
+              <Box flex="center-x">
+                <Balancer>{props.text}</Balancer>
+              </Box>
+
               {props.type === "prompt" && (
                 <input
                   ref={inputRef}
                   className={css`
+                    box-sizing: border-box;
                     margin-top: 1rem;
                     width: 100%;
                     font: inherit;
@@ -109,24 +114,34 @@ const ModalWindow: React.FC<ModalProps> = (props) => {
                 />
               )}
             </Box>
-            <Box
-              flex="x/stretch 40rem"
-              size="40rem"
-              className={css`
-                margin-top: 1rem;
-              `}
-            >
-              <Box size="grow" />
 
-              {props.type === "confirm" || props.type === "prompt" ? (
-                <>
-                  <Button
-                    theme="card-editing"
-                    text={props.options.cancelText ?? "Cancel"}
-                    onClick={() => {
-                      props.resolve(undefined);
-                    }}
-                  />
+            <Box flex="center-x" size="40rem">
+              <Box flex="x/stretch 40rem">
+                {props.type === "confirm" || props.type === "prompt" ? (
+                  <>
+                    <Button
+                      theme="card-editing"
+                      text={props.options.cancelText ?? "Cancel"}
+                      onClick={() => {
+                        props.resolve(undefined);
+                      }}
+                    />
+                    <Button
+                      theme="card-editing"
+                      variant={
+                        props.options.danger ? "danger-primary" : "primary"
+                      }
+                      text={props.options.okText ?? "OK"}
+                      onClick={() => {
+                        if (props.type === "confirm") {
+                          props.resolve(true);
+                        } else {
+                          props.resolve(inputRef.current?.value);
+                        }
+                      }}
+                    />
+                  </>
+                ) : props.type === "alert" ? (
                   <Button
                     theme="card-editing"
                     variant={
@@ -134,26 +149,11 @@ const ModalWindow: React.FC<ModalProps> = (props) => {
                     }
                     text={props.options.okText ?? "OK"}
                     onClick={() => {
-                      if (props.type === "confirm") {
-                        props.resolve(true);
-                      } else {
-                        props.resolve(inputRef.current?.value);
-                      }
+                      props.resolve();
                     }}
                   />
-                </>
-              ) : props.type === "alert" ? (
-                <Button
-                  theme="card-editing"
-                  variant={props.options.danger ? "danger-primary" : "primary"}
-                  text={props.options.okText ?? "OK"}
-                  onClick={() => {
-                    props.resolve();
-                  }}
-                />
-              ) : undefined}
-
-              <Box size="grow" />
+                ) : undefined}
+              </Box>
             </Box>
           </Box>
         </Box>

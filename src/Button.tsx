@@ -102,7 +102,7 @@ const Button: React.FC<{
             color: white;
           `
         : undefined,
-    ],
+    ] as (string | undefined)[],
 
     size: "grow",
     flex: "center",
@@ -147,7 +147,7 @@ const Button: React.FC<{
               {props.text && (
                 <big
                   className={css`
-                    font: var(--font-l);
+                    font: var(--font-l-ui);
                     ${textClassName};
                   `}
                 >

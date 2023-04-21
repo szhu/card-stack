@@ -53,29 +53,30 @@ function useStructuredLocalStorage<T>(
   serialize: (value: T) => string,
   deserialize: (value: string) => T,
 ) {
-  const hasInitializedRef = useRef(false);
-  const valueRef = useRef<T>();
+  interface Return {
+    current: T;
+    set: (newValue: T) => void;
+  }
+  const returnRef = useRef<Return>();
 
-  if (!hasInitializedRef.current) {
+  if (returnRef.current == null) {
     const storedValue = localStorage.getItem(key);
-    if (storedValue != null) {
-      valueRef.current = deserialize(storedValue);
-    } else {
-      valueRef.current = defaultValue;
-    }
-    hasInitializedRef.current = true;
+    let newValue =
+      storedValue != null ? deserialize(storedValue) : defaultValue;
+    returnRef.current = {
+      current: newValue,
+      set(newValue: T) {
+        if (newValue === defaultValue) {
+          localStorage.removeItem(key);
+        } else {
+          localStorage.setItem(key, serialize(newValue));
+        }
+        returnRef.current!.current = newValue;
+      },
+    };
   }
 
-  const setValue = (newValue: T) => {
-    if (newValue === defaultValue) {
-      localStorage.removeItem(key);
-    } else {
-      localStorage.setItem(key, serialize(newValue));
-    }
-    valueRef.current = newValue;
-  };
-
-  return [valueRef.current as T, setValue] as const;
+  return returnRef.current;
 }
 
 function shuffle<T>(items: T[]) {
@@ -351,7 +352,7 @@ export default function App() {
   const cardsStorage = useCardStorage();
 
   // orderedIds is a cached version of the order of cards
-  const [orderedIds, setOrderedIds] = useStructuredLocalStorage(
+  const orderedIds = useStructuredLocalStorage(
     `CardStack.storage.cardsOrder:${stackStorage.prettyStack}`,
     [] as string[],
     (value) => value.join("\n"),
@@ -363,7 +364,7 @@ export default function App() {
     if (errIsDemoStack) return;
     if (cardsStorage.cards.length === 0) return;
 
-    setOrderedIds(cardsStorage.cards.map((card) => card.id));
+    orderedIds.set(cardsStorage.cards.map((card) => card.id));
   }, [cardsStorage.cards]);
 
   // Load cards when the stack changes.
@@ -371,22 +372,16 @@ export default function App() {
     let order;
     if (stackStorage.stack === "/") {
       order = undefined;
-    } else if (orderedIds.length > 0) {
-      order = orderedIds;
+    } else if (orderedIds.current.length > 0) {
+      order = orderedIds.current;
     } else {
       order = "shuffle" as const;
     }
 
-    setStatusMessage("Loading");
-    cardsStorage
-      .loadCards(stackStorage.stack, order)
-      .then(() => {
-        setStatusMessage(undefined);
-      })
-      .catch((err) => {
-        setStatusMessage("ERROR");
-        throw err;
-      });
+    babysitAsyncAction(
+      cardsStorage.loadCards(stackStorage.stack, order),
+      "Loading",
+    );
   }, [stackStorage.stack]);
 
   // textEditing is used to edit the text of a card.
@@ -506,8 +501,18 @@ export default function App() {
             theme="circle"
             icon="❓"
             title="Help"
-            {...disabledAndOnClick(errAlreadyAtDemoStack, () => {
-              stackStorage.setPrettyStack("");
+            {...disabledAndOnClick(errAlreadyAtDemoStack, async () => {
+              if (
+                await modalWindow.confirm(
+                  "Would you like to view the CardStack tutorial?",
+                  {
+                    okText: "View",
+                    cancelText: "Cancel",
+                  },
+                )
+              ) {
+                stackStorage.setPrettyStack("");
+              }
             })}
           />
 
@@ -529,13 +534,24 @@ export default function App() {
           <Button
             theme="circle"
             icon="🔄"
-            title="Reload cards and order by date created"
-            {...disabledAndOnClick(false, () => {
+            title="Reload cards"
+            {...disabledAndOnClick(false, async () => {
+              let resetOrder = await modalWindow.confirm(
+                "Also reset card order to date created?",
+                {
+                  okText: "Reset",
+                  cancelText: "Keep ",
+                },
+              );
+
               cardsStorage.setCards([], true);
               cardEditing.cancel();
 
               babysitAsyncAction(
-                cardsStorage.loadCards(stackStorage.stack),
+                cardsStorage.loadCards(
+                  stackStorage.stack,
+                  resetOrder ? undefined : orderedIds.current,
+                ),
                 "Loading",
               );
             })}
