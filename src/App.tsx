@@ -11,6 +11,17 @@ import {
   apiUpdateCardText,
 } from "./api";
 
+/**
+ * useEffect, but as a component.
+ */
+const Effect: React.FC<{
+  fn: React.EffectCallback;
+  deps?: React.DependencyList;
+}> = (props) => {
+  useEffect(props.fn, props.deps);
+  return null;
+};
+
 function useStackStorage() {
   const stack = decodeURI(location.pathname);
   const prettyStack = stack.replace(/^\/(stack\/)?/, "");
@@ -285,7 +296,6 @@ function Card(left: number, top: number) {
     position: absolute;
     width: 100%;
     height: 100%;
-    padding: 10rem;
     top: ${top * 1.5}rem;
     left: ${left * 1.5}rem;
     user-select: text;
@@ -317,6 +327,20 @@ function autoSizeTextarea(textarea: HTMLElement | null) {
   if (textarea == null) return;
   textarea.style.height = "auto";
   textarea.style.height = textarea.scrollHeight + "px";
+}
+
+function useVisualViewportAspectRatio() {
+  const getValue = () =>
+    visualViewport ? visualViewport.width / visualViewport.height : 1;
+  const [aspectRatio, setAspectRatio] = useState<number>(getValue);
+
+  useEffect(() => {
+    const updateValue = () => setAspectRatio(getValue);
+    visualViewport?.addEventListener("resize", updateValue);
+    return () => visualViewport?.removeEventListener("resize", updateValue);
+  }, []);
+
+  return aspectRatio;
 }
 
 export default function App() {
@@ -382,18 +406,29 @@ export default function App() {
       window.getSelection?.()?.removeAllRanges();
     },
     async edit(initialText: string, reason: string) {
-      // cardTextarea.select();
       let text = await cardEditing.edit(initialText, reason);
       cardTextarea.blur();
       return text?.trim();
     },
   };
 
+  useEffect(() => {
+    const handler = () => {
+      autoSizeTextarea(cardTextarea.ref.current);
+    };
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+
   // modalWindow is used to display alerts, prompts, and confirmations.
   const modalWindow = useModalWindow();
 
   // statusMessage is used to display a status message at the top of the screen.
   const [statusMessage, setStatusMessage] = useState<string | undefined>();
+
+  // Detect whether the software keyboard is obscuring parts of the screen.
+  // https://stackoverflow.com/a/74962180/782045
+  const viewportIsSquareIsh = useVisualViewportAspectRatio() > 0.75;
 
   // Reasons why an action can't be performed:
   let errIsDemoStack =
@@ -433,6 +468,11 @@ export default function App() {
         throw e;
       });
   }
+
+  const cardText =
+    cardEditing.isEditing || errIsSaving
+      ? cardEditing.text
+      : cardsStorage.topCard?.fields.Text;
 
   return (
     <>
@@ -596,6 +636,9 @@ export default function App() {
                   className={[
                     Card(-3, -5),
                     css`
+                      padding: ${viewportIsSquareIsh ? "50rem 10rem" : "10rem"};
+                      transition: padding 0.2s ease-in-out;
+
                       &:not([readonly]):focus-within {
                         border-color: black;
                         border-color: SelectedItem;
@@ -610,8 +653,23 @@ export default function App() {
                     `,
                   ]}
                 >
+                  <Effect
+                    fn={() => {
+                      autoSizeTextarea(cardTextarea.ref.current);
+                    }}
+                    deps={[cardText]}
+                  />
+                  <Effect
+                    fn={() => {
+                      if (cardEditing.isEditing && cardTextarea.ref.current) {
+                        let el = cardTextarea.ref.current;
+                        el.focus();
+                        el.setSelectionRange(el.value.length, el.value.length);
+                      }
+                    }}
+                    deps={[cardEditing.isEditing]}
+                  />
                   <Box
-                    key={cardEditing.isEditing ? "edit" : "view"}
                     tag="textarea"
                     className={css`
                       font: inherit;
@@ -621,33 +679,16 @@ export default function App() {
                       border: none;
                       text-align: inherit;
                       cursor: inherit;
+                      overscroll-behavior: contain;
 
                       filter: ${errIsSaving && "blur(5px)"};
                     `}
                     onInput={(e) => {
                       cardEditing.setText(e.currentTarget.value);
-                      autoSizeTextarea(e.currentTarget);
                     }}
-                    ref={(el: HTMLTextAreaElement) => {
-                      if (
-                        el &&
-                        cardEditing.isEditing &&
-                        !cardTextarea.ref.current
-                      ) {
-                        el.focus();
-                        el.setSelectionRange(el.value.length, el.value.length);
-
-                        // el.select();
-                      }
-                      cardTextarea.ref.current = el as HTMLTextAreaElement;
-                      autoSizeTextarea(el);
-                    }}
+                    ref={cardTextarea.ref}
                     readOnly={!cardEditing.isEditing}
-                    value={
-                      cardEditing.isEditing || errIsSaving
-                        ? cardEditing.text
-                        : cardsStorage.topCard?.fields.Text
-                    }
+                    value={cardText}
                     onKeyDown={(e) => {
                       if (
                         e.key === "Enter" &&
@@ -674,7 +715,8 @@ export default function App() {
                 <Box
                   className={css`
                     position: absolute;
-                    top: -30rem;
+                    top: ${viewportIsSquareIsh ? "0rem" : "-40rem"};
+                    transition: top 0.2s ease-in-out;
                     left: 0;
                     right: 0;
                     visibility: ${cardEditing.isEditing ? "visible" : "hidden"};
@@ -691,7 +733,8 @@ export default function App() {
                     position: absolute;
                     left: 0;
                     right: 0;
-                    bottom: -30rem;
+                    bottom: ${viewportIsSquareIsh ? "20rem" : "-30rem"};
+                    transition: bottom 0.2s ease-in-out;
                     height: 40rem;
                     visibility: ${cardEditing.isEditing ? "visible" : "hidden"};
                   `}
