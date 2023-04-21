@@ -93,7 +93,7 @@ const Button: React.FC<{
       Border,
       props.variant === "primary"
         ? css`
-            background-color: #015fcc;
+            background-color: black;
             color: white;
           `
         : props.variant === "danger-primary"

@@ -82,7 +82,7 @@ const ModalWindow: React.FC<ModalProps> = (props) => {
             className={css`
               background: white;
               border-radius: 3rem;
-              max-width: 500rem;
+              max-width: min(500rem, 95vw);
             `}
           >
             <Box

@@ -108,6 +108,7 @@ function orderCardsByArray(cards: CardRecord[], order: string[]) {
 
 function useCardStorage() {
   const [cardsUndoHistory, setCardsUndoHistory] = useState<CardRecord[][]>([]);
+  const [, forceRender] = useState<undefined>();
 
   const cards = cardsUndoHistory[0] ?? [];
   function setCards(cards: CardRecord[], clearUndoHistory = false) {
@@ -144,7 +145,7 @@ function useCardStorage() {
       if (card == null) return;
 
       card.fields = await apiUpdateCardText(card.id, text);
-      setCards([...cards]);
+      forceRender(undefined);
     },
 
     async deleteCard(card: CardRecord) {
@@ -330,17 +331,18 @@ export default function App() {
   // textarea connects cardEditing to the card textarea.
   const cardTextarea = {
     ref: useRef<HTMLTextAreaElement | null>(null),
-    select() {
-      if (cardTextarea.ref.current == null) return;
-      cardTextarea.ref.current.select();
-    },
+    // select() {
+    //   if (cardTextarea.ref.current == null) return;
+    //   cardTextarea.ref.current.focus();
+    //   cardTextarea.ref.current.select();
+    // },
     blur() {
       if (cardTextarea.ref.current == null) return;
       cardTextarea.ref.current.blur();
       window.getSelection?.()?.removeAllRanges();
     },
     async edit(initialText: string, reason: string) {
-      cardTextarea.select();
+      // cardTextarea.select();
       let text = await cardEditing.edit(initialText, reason);
       cardTextarea.blur();
       return text?.trim();
@@ -394,6 +396,11 @@ export default function App() {
     <>
       <Box
         className={css`
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
           background: #929694;
           height: 100svh;
           width: 100vw;
@@ -520,7 +527,7 @@ export default function App() {
             aspect-ratio: 1/1;
           `}
         >
-          {cardsStorage.topCard && (
+          {(cardsStorage.topCard || cardEditing.isEditing) && (
             <>
               <Box
                 flex="center"
@@ -547,9 +554,9 @@ export default function App() {
                     Card(-3, -5),
                     css`
                       &:not([readonly]):focus-within {
-                        border-color: #1e43eb;
+                        border-color: black;
                         border-color: SelectedItem;
-                        box-shadow: inset 0 0 0 max(1px, 3rem) #1e43eb;
+                        box-shadow: inset 0 0 0 max(1px, 3rem) black;
                         box-shadow: inset 0 0 0 max(1px, 3rem) SelectedItem;
                       }
 
@@ -561,6 +568,7 @@ export default function App() {
                   ]}
                 >
                   <Box
+                    key={cardEditing.isEditing ? "edit" : "view"}
                     tag="textarea"
                     className={css`
                       font: inherit;
@@ -577,7 +585,15 @@ export default function App() {
                       cardEditing.setText(e.currentTarget.value);
                       autoSizeTextarea(e.currentTarget);
                     }}
-                    ref={(el) => {
+                    ref={(el: HTMLTextAreaElement) => {
+                      if (
+                        el &&
+                        cardEditing.isEditing &&
+                        !cardTextarea.ref.current
+                      ) {
+                        el.focus();
+                        // el.select();
+                      }
                       cardTextarea.ref.current = el as HTMLTextAreaElement;
                       autoSizeTextarea(el);
                     }}
@@ -644,7 +660,7 @@ export default function App() {
                   <Button
                     theme="card-editing"
                     icon="✅"
-                    text="Done"
+                    text="Save"
                     onClick={cardEditing.done}
                   />
 
