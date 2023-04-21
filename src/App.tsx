@@ -26,7 +26,6 @@ function useStackStorage() {
     prettyStack,
 
     setPrettyStack(newPrettyStack: string) {
-      newPrettyStack = newPrettyStack.trim();
       if (!newPrettyStack) {
         self.setStack("/");
       } else {
@@ -106,25 +105,60 @@ function orderCardsByArray(cards: CardRecord[], order: string[]) {
   return orderedCards;
 }
 
+function useDerivedState<B, D, O extends unknown[]>(
+  baseState: B,
+  setBaseState: (newBaseState: React.SetStateAction<B>) => void,
+  derive: (baseState: B) => D,
+  merge: (baseState: B, derivedState: D, ...opts: O) => B,
+) {
+  const derivedState = derive(baseState);
+
+  const setDerivedState = (
+    setDerivedStateAction: React.SetStateAction<D>,
+    ...opts: O
+  ) => {
+    setBaseState((oldBaseState) => {
+      let oldDerivedState = derive(oldBaseState);
+      let newDerivedState =
+        typeof setDerivedStateAction === "function"
+          ? (setDerivedStateAction as (prevState: D) => D)(oldDerivedState)
+          : setDerivedStateAction;
+
+      return merge(oldBaseState, newDerivedState, ...opts);
+    });
+  };
+
+  return [derivedState, setDerivedState] as const;
+}
+
 function useCardStorage() {
   const [cardsUndoHistory, setCardsUndoHistory] = useState<CardRecord[][]>([]);
-  const [, forceRender] = useState<undefined>();
 
-  const cards = cardsUndoHistory[0] ?? [];
-  function setCards(cards: CardRecord[], clearUndoHistory = false) {
-    if (clearUndoHistory) {
-      setCardsUndoHistory([cards]);
-    } else {
-      setCardsUndoHistory([cards, ...cardsUndoHistory]);
-    }
-  }
+  const [cards, setCards] = useDerivedState<
+    CardRecord[][],
+    CardRecord[],
+    [clearUndoHistory?: boolean]
+  >(
+    cardsUndoHistory,
+    setCardsUndoHistory,
+    (cardsUndoHistory) => cardsUndoHistory[0] ?? [],
+    (cardsUndoHistory, newCards, clearUndoHistory) => {
+      let [currentCards] = cardsUndoHistory;
 
-  const topCard = cards[0];
+      if (currentCards === newCards) return cardsUndoHistory;
+
+      if (clearUndoHistory) {
+        return [newCards];
+      } else {
+        return [newCards, ...cardsUndoHistory];
+      }
+    },
+  );
 
   return {
     cardsUndoHistory,
     cards,
-    topCard: topCard as CardRecord | undefined,
+    topCard: cards[0] as CardRecord | undefined,
 
     async loadCards(stack: string, orderedIds?: string[] | "shuffle") {
       let cards = await apiGetCards(stack);
@@ -145,42 +179,44 @@ function useCardStorage() {
       if (card == null) return;
 
       card.fields = await apiUpdateCardText(card.id, text);
-      forceRender(undefined);
+      setCards((oldCards) => oldCards);
     },
 
     async deleteCard(card: CardRecord) {
       if (card == null) return;
 
       await apiDeleteCard(card.id);
-      setCards(
-        cards.filter((c) => c.id !== card.id),
-        true,
-      );
+      setCards((oldCards) => oldCards.filter((c) => c.id !== card.id), true);
     },
 
     async addCard(stack: string, text: string) {
       let newCard = await apiCreateCard(stack, text);
-      setCards([newCard, ...cards], true);
+      setCards((oldCards) => [newCard, ...oldCards], true);
     },
 
     async shuffleCards() {
-      setCards(shuffle(cards));
+      setCards((oldCards) => shuffle(oldCards));
     },
 
     sendTopCardToBottom() {
-      if (cards.length < 1) return;
+      setCards((oldCards) => {
+        if (oldCards.length < 1) return oldCards;
 
-      let [topCard, ...restCards] = cards;
-      setCards([...restCards, topCard]);
+        let [topCard, ...restCards] = oldCards;
+
+        return [...restCards, topCard];
+      });
     },
 
     sendTopCardToRandom() {
-      if (cards.length < 1) return;
+      setCards((oldCards) => {
+        if (oldCards.length < 1) return oldCards;
 
-      let [topCard, ...restCards] = cards;
-      let randomIndex = Math.floor(Math.random() * restCards.length) + 1;
-      restCards.splice(randomIndex, 0, topCard);
-      setCards(restCards);
+        let [topCard, ...restCards] = oldCards;
+        let randomIndex = Math.floor(Math.random() * restCards.length) + 1;
+        restCards.splice(randomIndex, 0, topCard);
+        return restCards;
+      });
     },
 
     undo() {
@@ -196,6 +232,7 @@ function useCardStorage() {
 }
 
 function useTextEditing() {
+  const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState<string>();
   const [reason, setReason] = useState<string>();
 
@@ -207,10 +244,11 @@ function useTextEditing() {
     text,
     reason,
     setText,
-    isEditing: text != null,
+    isEditing,
     edit(text: string, reason?: string) {
       setReason(reason);
       setText(text);
+      setIsEditing(true);
       return new Promise<string | undefined>((resolve) => {
         resolveRef.current = resolve;
       });
@@ -218,12 +256,14 @@ function useTextEditing() {
     done() {
       resolveRef.current?.(text!);
       resolveRef.current = undefined;
-      setText(undefined);
+      setIsEditing(false);
     },
     cancel() {
       resolveRef.current?.(undefined);
       resolveRef.current = undefined;
       setText(undefined);
+      setReason(undefined);
+      setIsEditing(false);
     },
   };
 }
@@ -364,6 +404,8 @@ export default function App() {
   let errOneOrFewerCards = cardsStorage.cards.length <= 1 && true;
   let errIsEditing = cardEditing.isEditing && true;
   let errNoUndoHistory = cardsStorage.cardsUndoHistory.length <= 1 && true;
+  let errIsSaving =
+    (statusMessage === "Saving" || statusMessage === "Deleting") && true;
 
   async function displayError(err: boolean | string) {
     if (typeof err === "string") await modalWindow.alert(err);
@@ -438,8 +480,9 @@ export default function App() {
                 "Switch to or create a stack named:",
                 stackStorage.prettyStack,
               );
-              if (!text || !text.trim()) return;
-              stackStorage.setPrettyStack(text ?? "");
+              text = text?.trim() ?? "";
+              if (!text) return;
+              stackStorage.setPrettyStack(text);
             })}
           />
 
@@ -473,7 +516,7 @@ export default function App() {
             icon="✏️"
             title="Edit card"
             {...disabledAndOnClick(
-              errNoTopCard || errIsDemoStack || errIsEditing,
+              errNoTopCard || errIsDemoStack || errIsEditing || errIsSaving,
               async () => {
                 if (cardsStorage.topCard == null) return; // just for typescript
 
@@ -496,7 +539,7 @@ export default function App() {
             icon="🗑️"
             title="Delete card"
             {...disabledAndOnClick(
-              errNoTopCard || errIsDemoStack || errIsEditing,
+              errNoTopCard || errIsDemoStack || errIsEditing || errIsSaving,
               async () => {
                 if (cardsStorage.topCard == null) return; // just for typescript
 
@@ -579,7 +622,7 @@ export default function App() {
                       text-align: inherit;
                       cursor: inherit;
 
-                      filter: ${statusMessage === "Saving" && "blur(5px)"};
+                      filter: ${errIsSaving && "blur(5px)"};
                     `}
                     onInput={(e) => {
                       cardEditing.setText(e.currentTarget.value);
@@ -592,13 +635,19 @@ export default function App() {
                         !cardTextarea.ref.current
                       ) {
                         el.focus();
+                        el.setSelectionRange(el.value.length, el.value.length);
+
                         // el.select();
                       }
                       cardTextarea.ref.current = el as HTMLTextAreaElement;
                       autoSizeTextarea(el);
                     }}
                     readOnly={!cardEditing.isEditing}
-                    value={cardEditing.text ?? cardsStorage.topCard.fields.Text}
+                    value={
+                      cardEditing.isEditing || errIsSaving
+                        ? cardEditing.text
+                        : cardsStorage.topCard?.fields.Text
+                    }
                     onKeyDown={(e) => {
                       if (
                         e.key === "Enter" &&
@@ -619,7 +668,7 @@ export default function App() {
                         }
                       }
                     }}
-                  ></Box>
+                  />
                 </Box>
 
                 <Box
@@ -679,7 +728,7 @@ export default function App() {
             icon="⏮️"
             title="View previously seen card"
             {...disabledAndOnClick(
-              errNoUndoHistory || errIsEditing,
+              errNoUndoHistory || errIsEditing || errIsSaving,
               cardsStorage.undo,
             )}
           />
@@ -689,7 +738,7 @@ export default function App() {
             icon="↘️"
             title="Move this card to the bottom of the stack"
             {...disabledAndOnClick(
-              errOneOrFewerCards || errIsEditing,
+              errOneOrFewerCards || errIsEditing || errIsSaving,
               cardsStorage.sendTopCardToBottom,
             )}
           />
@@ -699,7 +748,10 @@ export default function App() {
             icon="➡️"
             title="Move this card to somewhere in the middle of the stack"
             {...disabledAndOnClick(
-              errOneOrFewerCards || errIsDemoStack || errIsEditing,
+              errOneOrFewerCards ||
+                errIsDemoStack ||
+                errIsEditing ||
+                errIsSaving,
               cardsStorage.sendTopCardToRandom,
             )}
           />
@@ -710,15 +762,18 @@ export default function App() {
             theme="bottom-row"
             icon="❇️"
             title="Create new card"
-            {...disabledAndOnClick(errIsDemoStack || errIsEditing, async () => {
-              let text = await cardTextarea.edit("", "Add new card");
-              if (!text) return;
+            {...disabledAndOnClick(
+              errIsDemoStack || errIsEditing || errIsSaving,
+              async () => {
+                let text = await cardTextarea.edit("", "Add new card");
+                if (!text) return;
 
-              await babysitAsyncAction(
-                cardsStorage.addCard(stackStorage.stack, text.trim()),
-                "Saving",
-              );
-            })}
+                await babysitAsyncAction(
+                  cardsStorage.addCard(stackStorage.stack, text),
+                  "Saving",
+                );
+              },
+            )}
           />
 
           <Button
@@ -726,7 +781,10 @@ export default function App() {
             icon="🔀"
             title="Shuffle all cards in this stack"
             {...disabledAndOnClick(
-              errOneOrFewerCards || errIsDemoStack || errIsEditing,
+              errOneOrFewerCards ||
+                errIsDemoStack ||
+                errIsEditing ||
+                errIsSaving,
               cardsStorage.shuffleCards,
             )}
           />
