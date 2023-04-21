@@ -59,6 +59,17 @@ const ModalWindow: React.FC<ModalProps> = (props) => {
             backdrop-filter: blur(2px);
             overscroll-behavior: none;
             outline: none;
+            animation: 0.15s fadeIn ease-in-out;
+
+            @keyframes fadeIn {
+              0% {
+                opacity: 0;
+              }
+              100% {
+                visibility: visible;
+                opacity: 1;
+              }
+            }
           `}
           onClick={(e) => {
             if (e.target === e.currentTarget) {

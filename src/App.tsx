@@ -698,6 +698,7 @@ export default function App() {
                       overscroll-behavior: contain;
 
                       filter: ${errIsSaving && "blur(5px)"};
+                      transition: filter 0.2s ease-in-out;
                     `}
                     onInput={(e) => {
                       cardEditing.setText(e.currentTarget.value);
